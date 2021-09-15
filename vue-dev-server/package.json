@@ -1,0 +1,23 @@
+{
+  "name": "@vue/dev-server",
+  "version": "0.1.1",
+  "description": "Instant dev server for Vue single file components",
+  "main": "middleware.js",
+  "bin": {
+    "vue-dev-server": "./bin/vue-dev-server.js"
+  },
+  "scripts": {
+    "test": "cd test && node ../bin/vue-dev-server.js"
+  },
+  "author": "Evan You",
+  "license": "MIT",
+  "dependencies": {
+    "@vue/component-compiler": "^3.6.0",
+    "express": "^4.16.4",
+    "lru-cache": "^5.1.1",
+    "recast": "^0.17.3",
+    "validate-npm-package-name": "^3.0.0",
+    "vue": "^2.6.8",
+    "vue-template-compiler": "^2.6.8"
+  }
+}
