@@ -1,5 +1,15 @@
 # vue-dev-server-analysis
 
+大家好，我是[若川](https://lxchuan12.gitee.io)。欢迎关注我的[公众号若川视野](https://p1-jj.byteimg.com/tos-cn-i-t2oaga2asx/gold-user-assets/2019/12/13/16efe57ddc7c9eb3~tplv-t2oaga2asx-image.image "https://p1-jj.byteimg.com/tos-cn-i-t2oaga2asx/gold-user-assets/2019/12/13/16efe57ddc7c9eb3~tplv-t2oaga2asx-image.image")，最近组织了[**源码共读活动**《1个月，200+人，一起读了4周源码》](https://mp.weixin.qq.com/s?__biz=MzA5MjQwMzQyNw==&mid=2650756550&idx=1&sn=9acc5e30325963e455f53ec2f64c1fdd&chksm=8866564abf11df5c41307dba3eb84e8e14de900e1b3500aaebe802aff05b0ba2c24e4690516b&token=917686367&lang=zh_CN#rd)，感兴趣的可以加我微信 [ruochuan12](https://mp.weixin.qq.com/s?__biz=MzA5MjQwMzQyNw==&mid=2650756550&idx=1&sn=9acc5e30325963e455f53ec2f64c1fdd&chksm=8866564abf11df5c41307dba3eb84e8e14de900e1b3500aaebe802aff05b0ba2c24e4690516b&token=917686367&lang=zh_CN#rd) 加微信群参与，长期交流学习。
+
+之前写的[《学习源码整体架构系列》](https://juejin.cn/column/6960551178908205093) 包含`jQuery`、`underscore`、`lodash`、`vuex`、`sentry`、`axios`、`redux`、`koa`、`vue-devtools`、`vuex4`十余篇源码文章。
+
+>写相对很难的源码，耗费了自己的时间和精力，也没收获多少阅读点赞，其实是一件挺受打击的事情。从阅读量和读者受益方面来看，不能促进作者持续输出文章。
+>所以转变思路，写一些相对通俗易懂的文章。**其实源码也不是想象的那么难，至少有很多看得懂**。歌德曾说：读一本好书，就是在和高尚的人谈话。
+>同理可得：读源码，也算是和作者的一种学习交流的方式。
+
+学习
+
 ## 环境准备
 
 ```json
@@ -42,6 +52,70 @@ app.listen(3000, () => {
   console.log('server running at http://localhost:3000')
 })
 ```
+
+### 原理现象
+
+`vue-dev-server/test` 文件夹下有三个文件，代码不长。
+
+- index.html
+- main.js
+- text.vue
+
+```html
+<!-- vue-dev-server/index.html -->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Vue Dev Server</title>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module">
+    import './main.js'
+  </script>
+</body>
+</html>
+```
+
+```js
+// vue-dev-server/main.js
+import Vue from 'vue'
+import App from './test.vue'
+
+new Vue({
+  render: h => h(App)
+}).$mount('#app')
+```
+
+```js
+// vue-dev-server/test.vue
+<template>
+  <div>{{ msg }}</div>
+</template>
+
+<script>
+export default {
+  data() {
+    return {
+      msg: 'Hi from the Vue file!'
+    }
+  }
+}
+</script>
+
+<style scoped>
+div {
+  color: red;
+}
+</style>
+```
+
+![没有执行中间件的原始情况](./images/original.png)
+
+加上中间件后。
+
+![执行了 vueMiddleware 中间文件变化](./images/vue-middleware.png)
 
 ### vueMiddleware
 
@@ -86,13 +160,54 @@ send(res, out.code, 'application/javascript')
 
 ### parseUrl
 
+### 缓存
+
+```js
+let cache
+let time = {}
+if (options.cache) {
+  const LRU = require('lru-cache')
+
+  cache = new LRU({
+    max: 500,
+    length: function (n, key) { return n * 2 + key.length }
+  })
+}
+```
+
 ### tryCache
+
+```js
+async function tryCache (key, checkUpdateTime = true) {
+  const data = cache.get(key)
+
+  if (checkUpdateTime) {
+    const cacheUpdateTime = time[key]
+    const fileUpdateTime = (await stat(path.resolve(root, key.replace(/^\//, '')))).mtime.getTime()
+    if (cacheUpdateTime < fileUpdateTime) return null
+  }
+
+  return data
+}
+```
 
 ### cacheData
 
-### bundleSFC
+```js
+function cacheData (key, data, updateTime) {
+  const old = cache.peek(key)
+
+  if (old != data) {
+    cache.set(key, data)
+    if (updateTime) time[key] = updateTime
+    return true
+  } else return false
+}
+```
 
 ### send
+
+### bundleSFC
 
 ```js
 async function bundleSFC (req) {
@@ -106,6 +221,8 @@ async function bundleSFC (req) {
   return { ...assembledResult, updateTime }
 }
 ```
+
+### readSource
 
 ```js
 const path = require('path')
@@ -142,6 +259,29 @@ if (!out) {
 }
 
 send(res, out, 'application/javascript')
+```
+
+### transformModuleImports
+
+```js
+const recast = require('recast')
+const isPkg = require('validate-npm-package-name')
+
+function transformModuleImports(code) {
+  const ast = recast.parse(code)
+  recast.types.visit(ast, {
+    visitImportDeclaration(path) {
+      const source = path.node.source.value
+      if (!/^\.\/?/.test(source) && isPkg(source)) {
+        path.node.source = recast.types.builders.literal(`/__modules/${source}`)
+      }
+      this.traverse(path)
+    }
+  })
+  return recast.print(ast).code
+}
+
+exports.transformModuleImports = transformModuleImports
 ```
 
 ### 对 /__modules/ 开头的文件进行处理
