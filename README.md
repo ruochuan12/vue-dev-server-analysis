@@ -4,9 +4,7 @@
 
 之前写的[《学习源码整体架构系列》](https://juejin.cn/column/6960551178908205093) 包含`jQuery`、`underscore`、`lodash`、`vuex`、`sentry`、`axios`、`redux`、`koa`、`vue-devtools`、`vuex4`十余篇源码文章。
 
->写相对很难的源码，耗费了自己的时间和精力，也没收获多少阅读点赞，其实是一件挺受打击的事情。从阅读量和读者受益方面来看，不能促进作者持续输出文章。
->所以转变思路，写一些相对通俗易懂的文章。**其实源码也不是想象的那么难，至少有很多看得懂**。歌德曾说：读一本好书，就是在和高尚的人谈话。
->同理可得：读源码，也算是和作者的一种学习交流的方式。
+3年前
 
 阅读本文，你将学到：
 
@@ -14,36 +12,74 @@
 
 ```
 
+导读、TODO：
+
+
+## vue-dev-server
+
 ## vue-dev-server 它的原理是什么
 
 [vue-dev-server#how-it-works](https://github.com/vuejs/vue-dev-server#how-it-works)
-README文档上有四句英文介绍。
+`README` 文档上有四句英文介绍。
 
 - 原生的JS模块导入，浏览器会发起请求导入
 - 
 - 
 - 
 
-## 环境准备
+## 准备工作
+
+### 克隆项目
+```sh
+# 推荐克隆我的仓库
+git clone https://github.com/lxchuan12/vue-dev-server-analysis.git
+cd vue-dev-server-analysis/vue-dev-server
+# npm i -g yarn
+# 安装依赖
+yarn
+
+# 或者克隆官方仓库
+git clone http://github.com/vuejs/vue-dev-server.git
+cd vue-dev-server
+# npm i -g yarn
+# 安装依赖
+yarn
+```
+
 
 ```json
+// vue-dev-server/package.json
 {
   "name": "@vue/dev-server",
   "version": "0.1.1",
   "description": "Instant dev server for Vue single file components",
   "main": "middleware.js",
+  // 指定可执行的命令
   "bin": {
     "vue-dev-server": "./bin/vue-dev-server.js"
   },
   "scripts": {
+    // 先跳转到 test 文件夹，再用 Node 执行 vue-dev-server 文件
     "test": "cd test && node ../bin/vue-dev-server.js"
   }
 }
 ```
 
-## 源码
+根据 `scripts` test 命令。我们来看 test 文件夹。
 
-### 整体结构
+### test 文件夹
+
+`vue-dev-server/test` 文件夹下有三个文件，代码不长。
+
+- index.html
+- main.js
+- text.vue
+
+如图下图所示。
+
+![test文件夹三个文件](./images/test.png)
+
+接着我们找到 vue-dev-server.js 文件，代码也不长。
 
 ### vue-dev-server.js
 
@@ -67,71 +103,44 @@ app.listen(3000, () => {
 })
 ```
 
+原来就是
+
+鉴于估计很多小伙伴没有用过`VSCode`调试，这里详细叙述下如何调试源码。**学会调试源码后，源码并没有想象中的那么难**。
+
+### 用 VSCode 调试项目
+
+找到 `scripts` 鼠标移动到 `test` 命令上，会出现`运行脚本`和`调试脚本`命令。如下图所示，选择调试脚本。
+
+![调试](./images/package.json-test.png)
+
+>如果你的`VSCode`不是中文（不习惯英文），可以安装[简体中文插件](https://marketplace.visualstudio.com/items?itemName=MS-CEINTL.vscode-language-pack-zh-hans)
+
+>如果`VSCode`没有这个调试功能。建议更新的到最新版`VSCode`。我的目前是最新（`v1.61.2`）。
+
+接着
+
+## vueMiddleware 源码
+
 ### 原理现象
 
-`vue-dev-server/test` 文件夹下有三个文件，代码不长。
-
-- index.html
-- main.js
-- text.vue
-
-```html
-<!-- vue-dev-server/index.html -->
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Vue Dev Server</title>
-</head>
-<body>
-  <div id="app"></div>
-  <script type="module">
-    import './main.js'
-  </script>
-</body>
-</html>
-```
-
-```js
-// vue-dev-server/main.js
-import Vue from 'vue'
-import App from './test.vue'
-
-new Vue({
-  render: h => h(App)
-}).$mount('#app')
-```
-
-```js
-// vue-dev-server/test.vue
-<template>
-  <div>{{ msg }}</div>
-</template>
-
-<script>
-export default {
-  data() {
-    return {
-      msg: 'Hi from the Vue file!'
-    }
-  }
-}
-</script>
-
-<style scoped>
-div {
-  color: red;
-}
-</style>
-```
+我们可以在 `vue-dev-server/bin/vue-dev-server.js` 文件中注释 `app.use(vueMiddleware())`，执行 npm run test 打开 `https://localhost:3000`。
 
 ![没有执行中间件的原始情况](./images/original.png)
 
-加上中间件后。
+启用中间件后，如下图。
 
 ![执行了 vueMiddleware 中间文件变化](./images/vue-middleware.png)
 
+
 ### vueMiddleware
+
+我们可以找到`vue-dev-server/middleware.js`，查看这个中间件函数的概览。
+
+`vueMiddleware` 最终返回一个函数。这个函数里主要做了四件事：
+- 对 `.vue` 结尾的文件进行处理
+- 对 `.js` 结尾的文件进行处理
+- 对 `/__modules/` 开头的文件进行处理
+- 如果不是以上三种情况，执行 `next` 方法，把控制权交给下一个中间件
 
 ```js
 // vue-dev-server/middleware.js
